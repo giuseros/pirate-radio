@@ -1,0 +1,31 @@
+#EXTM3U
+
+#EXTINF:-1,Rai Radio 1
+http://icestreaming.rai.it/1.mp3
+
+#EXTINF:-1,Rai Radio 2
+http://icestreaming.rai.it/2.mp3
+
+#EXTINF:-1,Rai Radio 3
+http://icestreaming.rai.it/3.mp3
+
+#EXTINF:-1,RTL 102.5
+https://streamingv2.shoutcast.com/rtl-1025
+
+#EXTINF:-1,Radio 105
+https://icecast.unitedradio.it/Radio105.mp3
+
+#EXTINF:-1,RDS 100% Grandi Successi
+https://stream.rds.radio/audio/rds.stream_aac64/chunklist.m3u8
+
+#EXTINF:-1,Virgin Radio Italia
+http://icecast.unitedradio.it/Virgin.mp3
+
+#EXTINF:-1,Radio Monte Carlo
+http://edge.radiomontecarlo.net/RMC.mp3
+
+#EXTINF:-1,R101
+http://icecast.unitedradio.it/r101
+
+#EXTINF:-1,Radio Kiss Kiss
+http://ice07.fluidstream.net:8080/KissKiss.mp3
