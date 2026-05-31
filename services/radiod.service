@@ -1,0 +1,13 @@
+[Unit]
+Description=Pirate Radio web interface
+After=network-online.target vlcd.service
+Wants=vlcd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/bin/radiod
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pirate Radio</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #111827;
+      color: #f3f4f6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+      gap: 16px;
+    }
+
+    header { text-align: center; }
+    header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.5px; }
+    header p  { font-size: 0.78rem; color: #6b7280; margin-top: 2px; }
+
+    .card {
+      background: #1f2937;
+      border-radius: 16px;
+      padding: 20px;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    /* --- Now playing --- */
+    .now-playing { text-align: center; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #9ca3af;
+      margin-bottom: 10px;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #374151;
+      transition: background 0.3s;
+    }
+    .dot.playing { background: #34d399; animation: blink 1.4s ease-in-out infinite; }
+    .dot.paused  { background: #fbbf24; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .station-name {
+      font-size: 1.5rem;
+      font-weight: 700;
+      min-height: 2rem;
+      line-height: 1.2;
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+    }
+    .btn {
+      background: #374151;
+      border: none;
+      border-radius: 50%;
+      color: #f3f4f6;
+      cursor: pointer;
+      font-size: 1rem;
+      width: 44px; height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn:hover  { background: #4b5563; }
+    .btn:active { transform: scale(0.93); }
+    .btn.play-pause {
+      width: 56px; height: 56px;
+      font-size: 1.3rem;
+      background: #ef4444;
+    }
+    .btn.play-pause:hover { background: #dc2626; }
+
+    /* --- Volume --- */
+    .row-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; }
+    .vol-pct { font-size: 0.9rem; color: #d1d5db; font-weight: 600; }
+
+    .vol-row { display: flex; align-items: center; gap: 10px; }
+    .vol-btn {
+      background: #374151;
+      border: none;
+      border-radius: 8px;
+      color: #f3f4f6;
+      cursor: pointer;
+      font-size: 1.1rem;
+      padding: 6px 14px;
+      transition: background 0.15s;
+    }
+    .vol-btn:hover { background: #4b5563; }
+    input[type=range] {
+      flex: 1;
+      accent-color: #ef4444;
+      cursor: pointer;
+    }
+
+    /* --- Station list --- */
+    .station-count { font-size: 0.78rem; color: #6b7280; }
+
+    .station-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .station-item:hover  { background: #374151; }
+    .station-item.active { background: #374151; }
+    .station-num  { color: #6b7280; font-size: 0.78rem; width: 18px; text-align: right; flex-shrink: 0; }
+    .station-title { flex: 1; font-size: 0.95rem; }
+    .station-item.active .station-title { color: #f87171; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🏴‍☠️ Pirate Radio</h1>
+  <p>Raspberry Pi Zero W + pHAT Beat</p>
+</header>
+
+<!-- Now playing -->
+<div class="card now-playing">
+  <div class="badge">
+    <span class="dot" id="dot"></span>
+    <span id="state-label">connecting…</span>
+  </div>
+  <div class="station-name" id="station-name">—</div>
+  <div class="controls">
+    <button class="btn" onclick="cmd('prev')" title="Previous">&#x23EE;</button>
+    <button class="btn play-pause" id="pp-btn" onclick="togglePlay()">&#x23F8;</button>
+    <button class="btn" onclick="cmd('next')" title="Next">&#x23ED;</button>
+  </div>
+</div>
+
+<!-- Volume -->
+<div class="card">
+  <div class="row-header">
+    <span class="label">Volume</span>
+    <span class="vol-pct" id="vol-pct">—</span>
+  </div>
+  <div class="vol-row">
+    <button class="vol-btn" onclick="nudgeVol(-51)">&#x2212;</button>
+    <input type="range" id="vol-slider" min="0" max="1024" value="512"
+           oninput="onSlider(this.value)" onchange="commitVol(this.value)">
+    <button class="vol-btn" onclick="nudgeVol(+51)">+</button>
+  </div>
+</div>
+
+<!-- Station list -->
+<div class="card">
+  <div class="row-header">
+    <span class="label">Stations</span>
+    <span class="station-count" id="station-count"></span>
+  </div>
+  <div id="station-list"></div>
+</div>
+
+<script>
+  let currentUrl   = "";
+  let currentState = "unknown";
+  let stations     = [];
+  let volDragging  = false;
+  let volTimer     = null;
+
+  async function fetchStatus() {
+    try {
+      const d = await fetch("/api/status").then(r => r.json());
+      applyStatus(d);
+    } catch (_) {}
+  }
+
+  function applyStatus(d) {
+    currentUrl   = d.current_url || "";
+    currentState = d.state || "unknown";
+
+    const dot   = document.getElementById("dot");
+    const label = document.getElementById("state-label");
+    const btn   = document.getElementById("pp-btn");
+
+    dot.className = "dot " + (currentState === "playing" ? "playing"
+                             : currentState === "paused"  ? "paused" : "");
+    label.textContent = currentState;
+    btn.innerHTML = currentState === "playing" ? "&#x23F8;" : "&#x25B6;";
+
+    if (!volDragging) {
+      const v = d.volume || 0;
+      document.getElementById("vol-slider").value = v;
+      document.getElementById("vol-pct").textContent = Math.round(v / 1024 * 100) + "%";
+    }
+
+    const active = stations.find(s => s.url === currentUrl || currentUrl.includes(s.url));
+    document.getElementById("station-name").textContent =
+      active ? active.name : (currentUrl ? currentUrl : "—");
+
+    document.querySelectorAll(".station-item").forEach((el, i) => {
+      const isActive = active && stations[i] && stations[i].name === active.name;
+      el.className = "station-item" + (isActive ? " active" : "");
+    });
+  }
+
+  async function loadStations() {
+    stations = await fetch("/api/stations").then(r => r.json());
+    const list = document.getElementById("station-list");
+    list.innerHTML = "";
+    stations.forEach((s, i) => {
+      const el = document.createElement("div");
+      el.className = "station-item";
+      el.innerHTML =
+        `<span class="station-num">${i + 1}</span>` +
+        `<span class="station-title">${s.name}</span>`;
+      el.onclick = () => cmd("goto " + (i + 1));
+      list.appendChild(el);
+    });
+    document.getElementById("station-count").textContent = stations.length + " stations";
+  }
+
+  async function cmd(command) {
+    await fetch("/api/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cmd: command }),
+    });
+    setTimeout(fetchStatus, 500);
+  }
+
+  function togglePlay() {
+    cmd(currentState === "playing" ? "pause" : "play");
+  }
+
+  function onSlider(val) {
+    volDragging = true;
+    document.getElementById("vol-pct").textContent = Math.round(val / 1024 * 100) + "%";
+  }
+
+  function commitVol(val) {
+    clearTimeout(volTimer);
+    volTimer = setTimeout(() => { cmd("volume " + val); volDragging = false; }, 200);
+  }
+
+  function nudgeVol(delta) {
+    const sl  = document.getElementById("vol-slider");
+    const v   = Math.max(0, Math.min(1024, parseInt(sl.value) + delta));
+    sl.value  = v;
+    document.getElementById("vol-pct").textContent = Math.round(v / 1024 * 100) + "%";
+    cmd("volume " + v);
+  }
+
+  loadStations().then(fetchStatus);
+  setInterval(fetchStatus, 2000);
+</script>
+</body>
+</html>
