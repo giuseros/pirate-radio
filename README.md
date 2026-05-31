@@ -6,7 +6,8 @@ Internet radio on a Raspberry Pi Zero W with a [pHAT Beat](https://shop.pimoroni
 
 - Raspberry Pi Zero W
 - Pimoroni pHAT Beat (stereo DAC + amplifier + VU meter LEDs + 6 buttons)
-- Raspbian Buster (Debian 10)
+
+Tested on **Raspbian Buster (Debian 10)**.
 
 ## Buttons
 
@@ -74,34 +75,100 @@ pirate-radio/
     └── phatbeatd           — init.d service (waits for vlcd before starting)
 ```
 
-## How it works
+## Architecture
+
+There are four daemons running on the Pi. Two handle control (accepting commands), one fetches and decodes audio, and the ALSA stack handles the audio output pipeline.
+
+### Services and control flow
+
+```mermaid
+graph TD
+    subgraph Pi ["Raspberry Pi Zero W"]
+        subgraph Services
+            vlcd["<b>vlcd</b><br/>bash script<br/>init.d service"]
+            VLC["<b>VLC</b><br/>media player<br/>:9294 RC socket<br/>:8080 HTTP"]
+            phatbeatd["<b>phatbeatd</b><br/>Python daemon<br/>init.d service"]
+            radiod["<b>radiod</b><br/>Python HTTP server<br/>systemd service<br/>:80"]
+        end
+
+        subgraph Audio ["ALSA audio pipeline"]
+            softvol["softvol<br/>(software volume)"]
+            pivumeter["pivumeter<br/>(VU meter driver)"]
+            dac["hw:1,0<br/>HifiBerry DAC<br/>I²S"]
+        end
+    end
+
+    subgraph Hardware ["pHAT Beat hardware"]
+        buttons["6 buttons<br/>GPIO"]
+        leds["VU meter LEDs<br/>APA102"]
+        amp["Class-D amplifier"]
+        speaker["Speaker"]
+    end
+
+    internet(("Internet\nradio streams")) -->|HTTP/HLS| VLC
+
+    vlcd -->|"launches"| VLC
+    VLC -->|"audio PCM"| softvol --> pivumeter --> dac --> amp --> speaker
+    pivumeter -->|"level data<br/>libpivumeter.so"| leds
+
+    buttons -->|"GPIO interrupts<br/>python3-phatbeat"| phatbeatd
+    phatbeatd -->|"stop / play / next / prev / vol"| VLC
+
+    browser(("Browser<br/>phone / laptop")) -->|"HTTP GET /"| radiod
+    browser -->|"HTTP POST /api/command"| radiod
+    radiod -->|"stop / play / next / goto / vol"| VLC
+    radiod -->|"GET /api/status"| VLC
+```
+
+### Boot sequence
+
+Services start in dependency order. Each waits for the one before it.
+
+```mermaid
+sequenceDiagram
+    participant OS as systemd / init.d
+    participant net as Network
+    participant vlcd
+    participant VLC
+    participant phatbeatd
+    participant radiod
+
+    OS->>net: wait for network-online.target
+    net-->>OS: up
+    OS->>vlcd: start (init.d)
+    vlcd->>VLC: launch with --aout alsa --daemon
+    VLC-->>vlcd: daemonized, RC listening on :9294
+    OS->>phatbeatd: start (init.d, after vlcd)
+    phatbeatd->>VLC: connect to RC socket (retries for 30 s)
+    VLC-->>phatbeatd: connected
+    OS->>radiod: start (systemd, after vlcd)
+    radiod-->>OS: HTTP server ready on :80
+```
+
+### Audio pipeline detail
+
+VLC outputs raw PCM to the ALSA `default` device, which is wired through three ALSA plugins before reaching the hardware:
 
 ```
-[Internet stream]
-      ↓
-    VLC  ── RC socket (port 9294) ──→  phatbeatd  ←── pHAT Beat buttons
-      ↓
-   ALSA default
-      ↓
-   softvol  (software volume control)
-      ↓
-   pivumeter  (drives the VU meter LEDs)
-      ↓
-   hw:1,0  (pHAT Beat I2S DAC → amplifier → speaker)
+VLC  →  softvol  →  pivumeter  →  hw:1,0 (HifiBerry DAC)
+            │              │
+         software       taps the
+          volume        PCM data
+          control       to drive
+        (amixer PCM)    VU LEDs
 ```
 
-## What was broken (and why)
+`pivumeter` is an ALSA `meter` plugin (`libpivumeter.so`). It passes audio through unchanged while measuring peak levels and writing them to the pHAT Beat's APA102 LED strip over SPI — producing the VU meter animation.
 
-The original Pimoroni installer had several issues on Raspbian Buster:
+### Web UI
 
-| Problem | Fix |
-|---------|-----|
-| `asound.conf` routed audio to `hw:0,0` (Pi built-in audio) instead of `hw:1,0` (pHAT Beat DAC) | Changed to `hw:1,0` |
-| PulseAudio intercepted the ALSA default device and redirected audio back to card 0 | Disabled PulseAudio autospawn and its ALSA hook (`99-pulse.conf`) |
-| VLC was not forced to use ALSA, so it defaulted to PulseAudio | Added `--aout alsa` to the VLC command |
-| `phatbeatd` crashed with `OSError: Transport endpoint not connected` when VLC's RC socket dropped | Added reconnect logic to `recv()` |
-| Neither service waited for the network before starting | Added `$network` to `Required-Start` in both init.d headers |
-| `phatbeatd` only retried connecting to VLC for 10 seconds | Increased retry window to 30 seconds |
+`radiod` serves a single-page app from `www/index.html`. The page polls `/api/status` every 2 seconds and sends commands to `/api/command`. The backend translates UI station indices into VLC's internal playlist IDs (which start at 4, not 1) before forwarding to the RC socket.
+
+```
+Browser  ──POST /api/command {cmd:"goto 6"}──▶  radiod  ──goto 9──▶  VLC RC :9294
+         ◀──GET  /api/status {state,volume,url}──        ◀──status────
+```
+
 
 ## Logs
 
@@ -125,7 +192,8 @@ VLC exposes an RC interface on port 9294. You can control it directly:
 ```bash
 echo 'next'   | nc -q1 127.0.0.1 9294   # next station
 echo 'prev'   | nc -q1 127.0.0.1 9294   # previous station
-echo 'pause'  | nc -q1 127.0.0.1 9294   # pause/resume
+echo 'stop'   | nc -q1 127.0.0.1 9294   # stop (immediate silence)
+echo 'play'   | nc -q1 127.0.0.1 9294   # resume (reconnects to current station)
 echo 'status' | nc -q1 127.0.0.1 9294   # show current state
 echo 'volume 256' | nc -q1 127.0.0.1 9294  # set volume (0–1024, 512 = 100%)
 ```
