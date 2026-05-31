@@ -201,8 +201,7 @@
     const label = document.getElementById("state-label");
     const btn   = document.getElementById("pp-btn");
 
-    dot.className = "dot " + (currentState === "playing" ? "playing"
-                             : currentState === "paused"  ? "paused" : "");
+    dot.className = "dot " + (currentState === "playing" ? "playing" : "");
     label.textContent = currentState;
     btn.innerHTML = currentState === "playing" ? "&#x23F8;" : "&#x25B6;";
 
@@ -248,7 +247,7 @@
   }
 
   function togglePlay() {
-    cmd(currentState === "playing" ? "pause" : "play");
+    cmd(currentState === "playing" ? "stop" : "play");
   }
 
   function onSlider(val) {

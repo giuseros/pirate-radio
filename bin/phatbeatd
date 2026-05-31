@@ -212,8 +212,8 @@ if __name__ == "__main__":
         @phatbeat.on(phatbeat.BTN_PLAYPAUSE)
         def pb_play_pause(pin):
             if vlc.get_current_state() == "play":
-                log(vlc.communicate("pause"))
-                vlc.set_current_state("pause")
+                log(vlc.communicate("stop"))
+                vlc.set_current_state("stop")
                 time.sleep(0.1)
                 phatbeat.clear()
                 phatbeat.show()
