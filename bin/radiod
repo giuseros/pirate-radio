@@ -54,6 +54,17 @@ def get_status():
     }
 
 
+def vlc_item_ids():
+    """Return VLC's internal playlist IDs in order, skipping root nodes."""
+    raw = vlc_cmd("playlist")
+    ids = []
+    for m in re.finditer(r'\|\s+\*?(\d+)\s+-\s+(.+)', raw):
+        name = m.group(2).strip()
+        if name not in ("Playlist", "Media Library"):
+            ids.append(int(m.group(1)))
+    return ids
+
+
 def read_playlist():
     stations = []
     try:
@@ -112,7 +123,14 @@ class Handler(BaseHTTPRequestHandler):
         if urlparse(self.path).path == "/api/command":
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length))
-            vlc_cmd(body.get("cmd", ""))
+            cmd = body.get("cmd", "")
+            m = re.match(r"goto (\d+)$", cmd)
+            if m:
+                idx = int(m.group(1))  # 1-based index from the UI
+                ids = vlc_item_ids()
+                if 1 <= idx <= len(ids):
+                    cmd = f"goto {ids[idx - 1]}"
+            vlc_cmd(cmd)
             self.send_json({"ok": True})
         else:
             self.send_response(404)
